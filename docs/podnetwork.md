@@ -10,7 +10,7 @@ The referenced object can be a CRD from which a pod network is created, or a CRD
 
 A `PodNetwork` is immutable once created. One network object should only be represented by one `PodNetwork` object. A `PodNetwork` object should be created after the referenced network object is created, and deleted before the referenced network object is deleted.
 
-Once created, `PodNetwork` objects can be used to identify or label resources or attributes that are related to a specific pod network. For example, in a multi-network cluster pods' IPs are only meaningful when associated with a specific pod network; gateways and services should also be defined with their networks explicitly specified. These cases are where `PodNetwork` objects are used as identifiers. This API does not define how explicitly `PodNetwork` objects are used as identifiers. Rather, we will provide reference implementations and design examples to show how `PodNetwork` objects may be used.
+Once created, `PodNetwork` objects can be used to identify or label resources or attributes that are related to a specific pod network. For example, in a multi-network cluster pods' IPs are only meaningful when associated with a specific pod network; gateways and services should also be defined with their networks explicitly specified. These cases are where `PodNetwork` objects are used as identifiers. This API does not demand how explicitly `PodNetwork` objects are used as identifiers. Rather, we will provide reference implementations and design examples to show how `PodNetwork` objects may be used.
 
 ## API Design
 
@@ -108,6 +108,10 @@ FOR EACH FooNetwork TO-BE-DELETED:
   DeletePodNetwork(FooNetwork)
 
 ```
+## Reference Implementation
+
+A reference implementation will be added later.
+
 
 ## Background
 Over the last few months, two primary iterations of multi-network APIs have been introduced and debated. The latest iteration is the `NetworkKind` API (formerly NetworkClass). It intended to offer a discovery and classification mechanism for Kubernetes controllers to manage multiple pod networks. The goal of that version is specifically stated as to “provide(s) a classification and discovery mechanism that allows Kubernetes APIs and controllers to recognize and integrate multiple pod networks”. Despite this goal, that API has proven inconvenient. `NetworkKind` alone cannot uniquely identify a specific network. In practice, users must employ an additional network name identifier. This reliance on a separate name identifier makes the `NetworkKind` largely redundant, providing utility only when identical network names are shared across different kinds.
