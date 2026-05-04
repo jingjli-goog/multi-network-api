@@ -70,7 +70,7 @@ type NetworkReference struct {
 
 ## DRA Integration
 
-To integrate pod networks with Dynamic Resource Allocation (DRA), this proposal defines a set of standards for driver implementations to allow unification on the usability of multi-network within a Kubernetes cluster and to enable future feature integrations.
+This proposal standardizes driver implementations to integrate pod networks with Dynamic Resource Allocation (DRA), facilitating a unified approach to multi-networking in Kubernetes and supporting the rollout of future features.
 
 ### Device PodNetwork Attributes
 
@@ -105,6 +105,18 @@ type podStatus struct {
 }
 ```
 
+### Creating `PodNetwork` objects
+In DRA based network implementation, the CRD objects representing networks are managed by a dedicated controller. To integrate with the new PodNetwork API, this controller should generate a corresponding PodNetwork object for every network under its management. In general, the controller should manage add/delete `PodNetwork` objects in the following way:
+
+```
+FOR EACH Network ADDED:
+  AddPodNetwork(Network)
+
+FOR EACH Network TO-BE-DELETED:
+  DeletePodNetwork(Network)
+
+```
+
 ## Example
 
 Considering an existing pod network implementation built from a `FooNetwork` CRD:
@@ -119,7 +131,7 @@ spec:
   ...
 ```
 
-As part of its implementation, such CRD objects are managed by a dedicated controller. To integrate with the new `PodNetwork` API, this controller should generate a corresponding `PodNetwork` object for every network under its management. Based on the `FooNetwork` example provided, the resulting `PodNetwork` would be structured as follows:
+The controller should create a `PodNetwork` object, which is:
 
 ```yaml
 apiVersion: multinetwork.networking.x-k8s.io/v1alpha1
@@ -133,17 +145,6 @@ spec:
     name: blue-net
     apigroup: multinetwork.networking.x-k8s.io
     namespace: default
-```
-
-In general, the `FooNetwork` controller should manage `PodNetwork` in the following way:
-
-```
-FOR EACH FooNetwork ADDED:
-  AddPodNetwork(FooNetwork)
-
-FOR EACH FooNetwork TO-BE-DELETED:
-  DeletePodNetwork(FooNetwork)
-
 ```
 
 A `DeviceClass` can be defined to represent all the resources of `FooNetwork`:
