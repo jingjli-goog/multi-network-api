@@ -5,11 +5,11 @@ The `PodNetwork` resource is designed to serve as a unique identifier for indivi
 
 The API remains agnostic to the underlying network implementation; the referenced object may be a CRD representing a network or one from which a network is instantiated. Consequently, the reference requires the group, kind, name and, optionally namespace of the target object.
 
-`PodNetwork` is defined as a cluster-scoped resource. `PodNetwork` objects are immutable once created. Each network object must correspond to exactly one `PodNetwork` instance. The lifecycle of this object is strictly tied to the referenced network object: it should be instantiated after the network object is created and removed prior to that object's deletion. The API is designed to work with DRA-based network implementations (see the [DRA Integration](#dra-integration) section). In this case, network implementations should automatically create and manage a corresponding `PodNetwork` resource for every network the same implementation manages. A set of conformance tests enforces DRA-related behavior. Although using DRA based implementations is the primary focus, this API is not restricted to DRA only. It can also be used for other network implementation approaches. 
+`PodNetwork` is defined as a cluster-scoped resource. `PodNetwork` objects are immutable once created. Each network object must correspond to exactly one `PodNetwork` instance. The lifecycle of this object is strictly tied to the referenced network object: it should be instantiated after the network object is created and removed prior to that object's deletion. The API is designed to work with network implementations based on Dynamic Resource Allocation (DRA, see the [DRA Integration](#dra-integration) section).Network implementations can automatically create and manage a corresponding `PodNetwork` resource for every network the same implementation manages. A set of conformance tests enforces how Multi-Network interacts with DRA. 
 
-Once established, `PodNetwork` resources can be used as identifiers or labels for network-dependent attributes and resources. In multi-network environments, such attributes and resources may include pod IPs, gateways and services. While this API provides the framework for identification, it does not strictly dictate how these identifiers must be utilized. Future design examples and reference implementations will demonstrate the various ways `PodNetwork` objects can be integrated.
+Once established, `PodNetwork` resources can be used as identifiers for network-dependent attributes and resources. In multi-network environments, such attributes and resources may include pod IPs, network policies, gateways and/or services. While this API provides the framework for identification, it does not strictly dictate how these identifiers must be utilized. Future design examples and reference implementations will demonstrate the various ways `PodNetwork` objects can be integrated.
 
-We plan to create a new API group called `multinetwork`. Currently, it will be placed in the `networking.x-k8s.io` API group. The goal is to place this API under `networking.k8s.io` eventually, after proper approvals.
+We plan to create a new API group called `multinetwork`. Currently, it will be placed in the `networking.x-k8s.io` API group. The goal is to place this API under `networking.k8s.io` eventually, after proper hardening and approvals.
 
 ## API Design
 
@@ -35,6 +35,9 @@ type PodNetwork struct {
     
     // Spec defines the desired state of the PodNetwork.
     Spec PodNetworkSpec `json:"spec"`
+
+    // Status defines the current state of the network
+    Status PodNetworkStatus `json:”status”`
 }
 
 // PodNetworkSpec defines the desired state of PodNetwork.
@@ -46,6 +49,51 @@ type PodNetworkSpec struct {
     // NetworkRef references the underlying specific network implementation.
     // +optional
     NetworkRef NetworkReference `json:"networkref,omitempty"`
+}
+
+type PodNetworkStatus struct {
+    // Conditions describe the current conditions of the referenced network.
+    //
+    // Currently, the only known condition is
+    //
+    // * "Ready"
+    //
+    // A "Ready” condition means the referenced network functions normally. Network
+    // implementations should decide 
+    // services, gateways, etc., can be used normally. An empty Condition field means the
+    // network is NOT ready. 
+    //
+    // Notes for implementors:
+    //
+    // Conditions are a listType `map`, which means that they function like a
+    // map with a key of the `type` field _in the k8s apiserver_.
+    //
+    // This means that implementations must obey some rules when updating this
+    // section.
+    //
+    // * Implementations MUST perform a read-modify-write cycle on this field
+    //   when modifying it. That is, when modifying this field, implementations
+    //   must be confident they have fetched the most recent version of this field,
+    //   and ensure that changes they make are on that recent version.
+    // * Implementations MUST NOT remove or reorder Conditions that they are not
+    //   directly responsible for. For example, if an implementation sees a Condition
+    //   with type `special.io/SomeField`, it MUST NOT remove, change or update that
+    //   Condition.
+    // * Implementations MUST always _merge_ changes into Conditions of the same Type,
+    //   rather than creating more than one Condition of the same Type.
+    // * Implementations MUST always update the `observedGeneration` field of the
+    //   Condition to the `metadata.generation` of the `PodNetwork` at the time of update creation.
+    // * If the `observedGeneration` of a Condition is _greater than_ the value the
+    //   implementation knows about, then it MUST NOT perform the update on that Condition,
+    //   but must wait for a future reconciliation and status update. (The assumption is that
+    //   the implementation's copy of the object is stale and an update will be re-triggered
+    //   if relevant.)
+    //
+    // +optional
+    // +listType=map
+    // +listMapKey=type
+    // +kubebuilder:validation:MaxItems=8
+    Conditions []metav1.Condition
 }
 
 // NetworkReference provides the details to locate the specific network object.
@@ -70,34 +118,28 @@ type NetworkReference struct {
 
 ## DRA Integration
 
-This proposal standardizes driver implementations to integrate pod networks with Dynamic Resource Allocation (DRA), facilitating a unified approach to multi-networking in Kubernetes and supporting the rollout of future features.
+This proposal standardizes driver implementations to integrate pod networks with DRA, facilitating a unified approach to multi-networking in Kubernetes and supporting the rollout of future features.
 
 ### Device PodNetwork Attributes
 
-This proposal defines two standard device attributes that can be used in the `ResourceSlice` resource. These attributes allow `ResourceClaims` to select specific pod networks and enable the system to identify devices that attach workloads to a given pod network.
+This proposal defines one standard device attribute that can be used in the `ResourceSlice` resource. This attribute allows `ResourceClaims` to select a specific PodNetwork and enable the system to identify devices that attach workloads to it.
 
 ```go
 const (
   // StandardDeviceAttributePrefix is the prefix used for standard device attributes.
-  StandardDeviceAttributePrefix = "multinetwork.networking.x-k8s.io/" 
+  StandardDeviceAttributePrefix = "multinetwork.networking.k8s.io/ " 
 
   // StandardDeviceAttributePodNetwork is a standard device attribute name
   // which identifies a pod network.
   // The value is a string value referring to the name of an existing PodNetwork cluster-scoped object.
   StandardDeviceAttributePodNetwork resourceapi.QualifiedName = StandardDeviceAttributePrefix + "podNetwork"
-
-  // StandardDeviceAttributePodNetworkNamespace is a standard device attribute name
-  // which describes the namespace of a pod network.
-  // The value is a string value referring to the namespace of a pod network object.
-  // The attribute is optional for a PodNetwork holding a NetworkRef with empty Namespace field. 
-  // The attribute is mandatory for a PodNetwork holding a NetworkRef with non-empty Namespace field. 
-  StandardDeviceAttributePodNetworkNamespace resourceapi.QualifiedName = StandardDeviceAttributePrefix + "podNetworkNamespace"  
+  
 )
 ```
 
 ### ResourceClaim Status
 
-An allocated device is reported in the associated `ResourceClaim` status with a reference to the PodNetwork object. This proposal standardizes for all drivers supporting PodNetwork to properly set the `status.devices[].data` with the `podNetwork` field. The structure for the data should include the following definition:
+When the controller allocates the device representing the specific network to a pod, it may report in the associated `ResourceClaim` status a reference to the PodNetwork object as well as basic network data. This design standardizes for all drivers supporting PodNetwork to properly set the `status.devices.[].data` with the podNetwork field. The structure for the data should include following definition:
 
 ```go
 type podStatus struct {
@@ -105,8 +147,10 @@ type podStatus struct {
 }
 ```
 
+Further, the network implementation should also fill out the ``status.devices.[].data.networkdata` field.
+
 ### Creating `PodNetwork` objects
-In DRA based network implementation, the CRD objects representing networks are managed by a dedicated controller. To integrate with the new PodNetwork API, this controller should generate a corresponding PodNetwork object for every network under its management. In general, the controller should manage add/delete `PodNetwork` objects in the following way:
+In DRA based network implementation, the CRD objects representing networks are managed by a dedicated controller. To integrate with the new PodNetwork API, this controller may  generate a corresponding PodNetwork object for every network under its management. In general, the controller should manage add/delete `PodNetwork` objects in the following way:
 
 ```
 FOR EACH Network ADDED:
@@ -131,13 +175,13 @@ spec:
   ...
 ```
 
-The controller should create a `PodNetwork` object, which is:
+The controller could then create a `PodNetwork` object, which is:
 
 ```yaml
 apiVersion: multinetwork.networking.x-k8s.io/v1alpha1
 kind: PodNetwork
 metadata:
-  name: foo-net-blue # Controller can decide the naming convention. Immutable nature of PodNetwork ensures that the name is unique for each network.
+  name: foo-net-blue # If created by the controller, it can decide the naming convention.
 spec: 
   provider: foo.networking.com
   networkref:
@@ -197,27 +241,36 @@ status:
     driver: foo.networking.com
     data:
       podNetwork: foo-net-blue
+    networkdata:
+      networkData:
+      hardwareAddress: 5a:9f:d8:84:fb:51
+      interfaceName: net1
+      ips:
+      - 10.10.1.2/24
 ...
 
 ```
 
 ## Conformance Tests
 
-Conformance tests validate that a network implementation correctly integrates with `PodNetwork` and the Kubernetes Resource API. These tests ensure that pod networks are discoverable, selectable, and observable using standard Kubernetes mechanisms. Note that the tests here only verify properties related to this API.
+We plan NOT to implement a separate controller for `PodNetwork`, but depend on Kubernetes native resource handling. 
+
+We intend that `PodNetwork` to be used together with a DRA-based network implementation. For this, we create conformance tests to validate the behavior of such network DRA drivers. These tests ensure that pod networks are discoverable, selectable, and observable using standard Kubernetes mechanisms. Note that the tests here only verify properties related to this API, not the common DRA driver behaviors.
 
 Conformance tests validate:
 * `PodNetwork` object lifecycle: a network implementation creates `PodNetwork` objects and manages them properly.
   1. A `PodNetwork` object is created once the specific network instance is created.
   2. The `PodNetwork` holds a proper reference to the network CRD object, with the `spec.Provider` field set properly. 
-  3. If a `PodNetwork` referencing a specific network is deleted while the referenced network is still alive, it should be recreated right away.
-  4. When a network instance itself is deleted, the corresponding `PodNetwork` object should be deleted.
+ 
+  3. When a network instance itself is deleted, the corresponding `PodNetwork` object should be deleted.
+  4. When a `PodNetwork` is created, its `spec.Conditions` field ultimately contains `Ready`.
+  5. When a network is deleted, the corresponding `PodNetwork` is also deleted.
 
 * `ResourceSlice` attributes: the `ResourceSlice` resource advertised by a network implementation must include the following attributes with the value set properly:
-  1. `multinetwork.networking.x-k8s.io/podNetwork`.
-  2. `multinetwork.networking.x-k8s.io/podNetworkNamespace`, only included if the PodNetwork object is namespace-scoped.
+  1. `multinetwork.networking.k8s.io/podNetwork`.
 
 * `ResourceClaim` status reporting. 
-  1. A pod network implementation must update the `ResourceClaim`'s device status to include the corresponding `PodNetwork` in the `data` field, after the claim is fulfilled.
+  1. A pod network implementation must update the `ResourceClaim`'s device status to include proper data.
 
 ## Reference Implementation
 
@@ -225,13 +278,6 @@ A reference implementation will be added later.
 
 
 ## Alternatives
-Over the last few months, two primary iterations of multi-network APIs have been introduced and debated. The latest iteration is the `NetworkKind` API (formerly NetworkClass). It intended to offer a discovery and classification mechanism for Kubernetes controllers to manage multiple pod networks. The goal of that version is specifically stated as to “provide(s) a classification and discovery mechanism that allows Kubernetes APIs and controllers to recognize and integrate multiple pod networks”. Despite this goal, that API has proven inconvenient. `NetworkKind` alone cannot uniquely identify a specific network. In practice, users must employ an additional network name identifier. This reliance on a separate name identifier makes the `NetworkKind` largely redundant, providing utility only when identical network names are shared across different kinds.
+There have been two former iterations of multi-network APIs introduced and debated. The latest iteration is the `NetworkKind` API (formerly NetworkClass). It is intended to provide a classification and discovery mechanism that allows Kubernetes APIs and controllers to recognize and integrate multiple pod networks. However, that API has proven inconvenient because `NetworkKind` alone cannot uniquely identify a specific network, and in practice, users still need the network name in an identifier.  The predecessor was the original `PodNetwork` proposal. There it sought to establish an abstract `Network` type as a standard base for all secondary network implementations. However, the extreme technical diversity of networks makes a unified abstract network type nearly impossible to define. Consequently, such an abstract network type saw significant pushback from the community.
 
-The predecessor to `NetworkKind` was the original `PodNetwork` proposal. There it sought to establish an abstract `Network` type as a standard base for all secondary network implementations. While this approach would theoretically solve the identification issue mentioned above by using the `PodNetwork` object itself as the identifier, it faces a significant dilemma: the extreme technical diversity of networks (e.g., L2 vs. L3, RDMA vs. TCP/IP) makes a unified abstract network type nearly impossible to define. Any such type becomes so minimal that nearly all functional configuration must be relegated to implementation-specific key-value pairs, severely limiting its usefulness. Consequently, we observed significant pushback against adopting this API for both new and existing secondary-network implementations.
-
-Drawing from community feedback on prior iterations and with insights gained from planning a reference implementation, we have identified two core guiding principles:
-
-1. **Explicit network identification is highly valuable**: Such a mechanism enables resources like Services, Gateways, and Network Policies to explicitly target a particular network, satisfying a significant community demand.
-2. **High-level network abstraction is very difficult**: Abstract network types, due to the technical diversity dilemma mentioned above, offer minimal utility to developers—particularly those managing established network implementations. Consequently, there is little incentive for these developers to migrate toward a universal, high-level abstraction of a `Network`.
-
-In light of these observations, we proposed the current version of `PodNetwork` API that purely serves as a discovery and identification framework. Specifically, we encourage generating `PodNetwork` resources **from** existing implementations, rather than forcing network implementations to be built **upon** the `PodNetwork` type. This flexibility is intended to accelerate community adoption.
+The current version of the API purely serves as a discovery and identification framework.  Specifically, we encourage generating `PodNetwork` resources **from** existing implementations, rather than forcing network implementations to be built **upon** the `PodNetwork` type. This flexibility is intended to accelerate community adoption.
