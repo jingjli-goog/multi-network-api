@@ -257,24 +257,25 @@ Rather than implementing a standalone controller for PodNetwork, we will rely on
 
 Conformance tests validate:
 * `PodNetwork` object lifecycle: a network implementation creates `PodNetwork` objects and manages them properly.
-  1. A `PodNetwork` object is created once the specific network instance is created.
-  2. The `PodNetwork` holds a proper reference to the network CRD object, with the `spec.Provider` field set properly. 
- 
-  3. When a network instance itself is deleted, the corresponding `PodNetwork` object should be deleted.
-  4. When a `PodNetwork` is created, its `spec.Conditions` field ultimately contains `Ready`.
-  5. When a network is deleted, the corresponding `PodNetwork` is also deleted.
+  1. The `PodNetwork` holds a proper reference to the network CRD object, with the `spec.Provider` field set properly. 
+  2. When a `PodNetwork` is created, its `spec.Conditions` field ultimately contains `Ready` condition with value true.
+  5. When a network is deleted, the corresponding `PodNetwork` is either deleted or with `Ready` condition with value false, or without the `Ready` condition.
 
 * `ResourceSlice` attributes: the `ResourceSlice` resource advertised by a network implementation must include the following attributes with the value set properly:
   1. `multinetwork.networking.k8s.io/podNetwork`.
 
 * `ResourceClaim` status reporting. 
-  1. A pod network implementation must update the `ResourceClaim`'s device status to include proper data.
+  1. A pod network implementation must update the `ResourceClaim`'s device status to include proper data and populate networkdata field.
 
 ## Reference Implementation
 
 A reference implementation will be added later.
 
 ## Alternatives
-There have been two former iterations of multi-network APIs introduced and debated. The latest iteration is the `NetworkKind` API (formerly NetworkClass). It is intended to provide a classification and discovery mechanism that allows Kubernetes APIs and controllers to recognize and integrate multiple pod networks. However, that API has proven inconvenient because `NetworkKind` alone cannot uniquely identify a specific network, and in practice, users still need the network name in an identifier.  The predecessor was the original `PodNetwork` proposal. There it sought to establish an abstract `Network` type as a standard base for all secondary network implementations. However, the extreme technical diversity of networks makes a unified abstract network type nearly impossible to define. Consequently, such an abstract network type saw significant pushback from the community.
+### `NetworkKind` API (formerly NetworkClass)
+There have been two former iterations of multi-network APIs introduced and debated. The latest iteration is the `NetworkKind` API (formerly NetworkClass). It is intended to provide a classification and discovery mechanism that allows Kubernetes APIs and controllers to recognize and integrate multiple pod networks. However, that API has proven inconvenient because `NetworkKind` alone cannot uniquely identify a specific network, and in practice, users still need the network name in an identifier.
 
-The current version of the API purely serves as a discovery and identification framework.  Specifically, we encourage generating `PodNetwork` resources **from** existing implementations, rather than forcing network implementations to be built **upon** the `PodNetwork` type. This flexibility is intended to accelerate community adoption.
+### original `PodNetwork`
+The predecessor was the original `PodNetwork` proposal. There it sought to establish an abstract `Network` type as a standard base for all secondary network implementations. However, the extreme technical diversity of networks makes a unified abstract network type nearly impossible to define. Consequently, such an abstract network type saw significant pushback from the community.
+
+
