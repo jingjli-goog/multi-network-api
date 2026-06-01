@@ -138,7 +138,7 @@ const (
 ```
 
 ### Creating `PodNetwork` objects
-In DRA based network implementations, a specialized controller manages the CRD objects that represent networks. To ensure compatibility with the PodNetwork API, this controller may  automatically produce a matching PodNetwork object for each network it oversees. The following logic outlines how the controller should generally handle the addition and removal of `PodNetwork` resources:
+In DRA based network implementations, a specialized controller manages the custom resource objects that represent networks. To ensure compatibility with the PodNetwork API, this controller may  automatically produce a matching PodNetwork object for each network it oversees. The following logic outlines how the controller should generally handle the addition and removal of `PodNetwork` resources:
 
 ```
 FOR EACH Network ADDED:
@@ -162,10 +162,10 @@ Further, the network implementation should also fill out the ``status.devices.[]
 
 ## Example
 
-Considering an existing pod network implementation built from a `FooNetwork` CRD:
+Considering an existing pod network implementation built from a `FooNetwork` custom resource:
 
 ```yaml
-apiVersion: multinetwork.networking.x-k8s.io/v1
+apiVersion: multinetwork.networking.x-k8s.io/v1alpha1
 kind: FooNetwork
 metadata:
   name: blue-net
@@ -233,7 +233,7 @@ spec:
     requests: 
     - name: network-request
       exactly:
-        deviceClassName: foo-net-blue
+        deviceClassName: class-foo-net-blue
 status:
   devices:
   - device: eno1
@@ -257,7 +257,7 @@ Rather than implementing a standalone controller for PodNetwork, we will rely on
 
 Conformance tests validate:
 * `PodNetwork` object lifecycle: a network implementation creates `PodNetwork` objects and manages them properly.
-  1. The `PodNetwork` holds a proper reference to the network CRD object, with the `spec.Provider` field set properly. 
+  1. The `PodNetwork` holds a proper reference to the network custom resource object, with the `spec.Provider` field set properly. 
   2. When a `PodNetwork` is created, its `spec.Conditions` field ultimately contains `Ready` condition with value true.
   5. When a network is deleted, the corresponding `PodNetwork` is either deleted or with `Ready` condition with value false, or without the `Ready` condition.
 
