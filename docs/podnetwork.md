@@ -256,8 +256,8 @@ Rather than implementing a standalone controller for PodNetwork, we will rely on
 
 
 Conformance tests validate:
-* `PodNetwork` object lifecycle: a network implementation creates `PodNetwork` objects and manages them properly.
-  1. The `PodNetwork` holds a proper reference to the network custom resource object, with the `spec.Provider` field set properly. 
+* `PodNetwork` object lifecycle.
+  1. When created, a `PodNetwork` holds `spec` field, with the `spec.Provider` field set properly, and, if exist, the `spec.NetworkRef` field should reference the proper network custom resource object. 
   2. When a `PodNetwork` is created, its `spec.Conditions` field ultimately contains `Ready` condition with value true.
   5. When a network is deleted, the corresponding `PodNetwork` is either deleted or with `Ready` condition with value false, or without the `Ready` condition.
 
