@@ -254,7 +254,6 @@ status:
 
 Rather than implementing a standalone controller for PodNetwork, we will rely on native Kubernetes resource handling. The `PodNetwork` resource is intended for use with DRA-based network implementations. Consequently, we are establishing conformance tests to validate the behavior of these network DRA drivers. These tests verify that pod networks can be discovered, selected, and observed through standard Kubernetes mechanisms, focusing specifically on API-related properties rather than general DRA driver behaviors.
 
-
 Conformance tests validate:
 * `PodNetwork` object lifecycle.
   1. When created, a `PodNetwork` holds `spec` field, with the `spec.Provider` field set properly, and, if exist, the `spec.NetworkRef` field should reference the proper network custom resource object. 
@@ -265,7 +264,7 @@ Conformance tests validate:
   1. `multinetwork.networking.k8s.io/podNetwork`.
 
 * `ResourceClaim` status reporting. 
-  1. A pod network implementation must update the `ResourceClaim`'s device status to include proper data and populate networkdata field.
+  1. A pod network implementation must update the `ResourceClaim`'s device status to include proper data and populate `networkdata` field.
 
 ## Reference Implementation
 
