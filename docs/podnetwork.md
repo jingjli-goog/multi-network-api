@@ -42,8 +42,12 @@ type PodNetwork struct {
 
 // PodNetworkSpec defines the desired state of PodNetwork.
 type PodNetworkSpec struct {
-    // Provider specifies the network provider responsible for this instance of PodNetwork.
+    // Provider specifies the network provider responsible for this instance of PodNetwork. 
+    // The name must be a domain-prefixed path (e.g., "networking.gke.io/multinetwork") 
+    // to avoid collisions.
     // +required
+    // +kubebuilder:validation:MaxLength=250
+    // +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*\/[A-Za-z0-9\/\-. ~%]+$`
     Provider string `json:"provider"`
     
     // NetworkRef references the underlying specific network implementation.
@@ -269,6 +273,17 @@ Conformance tests validate:
 ## Reference Implementation
 
 A reference implementation will be added later.
+
+## Summary
+To summarize, the `PodNetwork` API will have the following features:
+
+- `PodNetwork` allows us to define network-specific behaviors that can be used and referenced by other Kubernetes modules, such as Service, Gateway, Network Policy, etc.
+
+- The actual implementation of the networks referenced by `PodNetwork` objects are not part of this API. It remains the network implementation's responsibility to be portable across platforms.
+
+- `PodNetwork` itself does not define its behavior with Service, Gateway, Network Policy, etc. Rather, the implementations of Service, Gateway, Network Policy, etc. will define their behavior with `PodNetwork`. `PodNetwork` facilitates the portability of such features if only the network implementation it referenced is portable.
+
+- In this proposal we avoid invasive designs, such as adding an extra `PodNetwork` reference to all of the existing Kubernetes resources like Pod, Service, Gateway, Network Policy, etc. Rather, related resources will find their respective ways to use `PodNetwork`, many without any API change.
 
 ## Alternatives
 ### `NetworkKind` API (formerly NetworkClass)
