@@ -142,7 +142,7 @@ const (
 ```
 
 ### Creating `PodNetwork` objects
-In DRA based network implementations, a specialized controller manages the custom resource objects that represent networks. To ensure compatibility with the PodNetwork API, this controller may  automatically produce a matching PodNetwork object for each network it oversees. The following logic outlines how the controller should generally handle the addition and removal of `PodNetwork` resources:
+In DRA based network implementations, a specialized controller manages the custom resource objects that represent networks. To ensure compatibility with the PodNetwork API, this controller may automatically produce a matching PodNetwork object for each network it oversees. The following logic outlines how the controller should generally handle the addition and removal of `PodNetwork` resources:
 
 ```
 FOR EACH Network ADDED:
@@ -152,6 +152,9 @@ FOR EACH Network TO-BE-DELETED:
   DeletePodNetwork(Network)
 
 ```
+
+To avoid naming collisions, it is recommended that the name of the generated `PodNetwork` object should have the provider name as a prefix, for example, "foo.networking.com/podnet-blue-net". Though this is not enforced. When name conflict happens, the fact that `PodNetwork` is an immutable type prevents the object from being created. It is recommended that the controllers should expect name conflicts and deal with them gracefully.
+
 ### ResourceClaim Status
 
 Upon allocation of a device representing a specific network to a pod, the controller should include a reference to the `PodNetwork` object within the status of the corresponding `ResourceClaim`. To ensure consistency, this design requires all PodNetwork-compatible drivers to populate the `status.devices.[].data` field with the `podNetwork` property. The data structure is defined as follows:
@@ -184,7 +187,7 @@ The controller could then create a `PodNetwork` object, which is:
 apiVersion: multinetwork.networking.x-k8s.io/v1alpha1
 kind: PodNetwork
 metadata:
-  name: foo-net-blue # If created by the controller, it can decide the naming convention.
+  name: foo.networking.com/podnet-blue-net # If created by the controller, it can decide the naming convention.
 spec: 
   provider: foo.networking.com
   networkref:
@@ -204,7 +207,7 @@ metadata:
 spec:
   selectors:
   - cel:
-      expression: device.attributes["multinetwork.networking.x-k8s.io"].podNetwork == "foo-net-blue"
+      expression: device.attributes["multinetwork.networking.x-k8s.io"].podNetwork == "foo.networking.com/podnet-blue-net"
 ```
 
 `FooNetwork`'s DRA driver should create `ResourceSlice` objects like the following (common fields ignored):
@@ -220,7 +223,7 @@ spec:
     basic:
       attributes:
         multinetwork.networking.x-k8s.io/podNetwork:
-          string: foo-net-blue
+          string: foo.networking.com/podnet-blue-net
 ....
 
 ```
@@ -243,7 +246,7 @@ status:
   - device: eno1
     driver: foo.networking.com
     data:
-      podNetwork: foo-net-blue
+      podNetwork: foo.networking.com/podnet-blue-net
     networkdata:
       networkData:
       hardwareAddress: 5a:9f:d8:84:fb:51
