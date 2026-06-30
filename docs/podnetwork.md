@@ -3,9 +3,9 @@
 ## Proposal
 The `PodNetwork` resource is designed to serve as a unique identifier for individual pod networks. By maintaining a reference to a specific pod network implementation along with its essential descriptive data, this resource enables Kubernetes APIs and controllers to uniquely and efficiently identify specific networks.
 
-The API remains agnostic to the underlying network implementation; the referenced object may be a CRD representing a network or one from which a network is instantiated. Consequently, the reference requires the group, kind, name, and optionally, the namespace of the target object.
+The API remains agnostic to the underlying network implementation; the referenced object may be a CRD representing a network or one from which a network is instantiated. Consequently, the reference requires the group, kind, name, and optionally, the namespace of the target object. The API also allow a `PodNetwork` object with no network reference. In this case, the user is responsible for providing network configurations explicitly wherever this `PodNetwork` object is used.
 
-`PodNetwork` is defined as a cluster-scoped resource. `PodNetwork` objects are immutable once created. Each network object must correspond to exactly one `PodNetwork` instance. The API is designed to work with network implementations based on Dynamic Resource Allocation (DRA, see the [DRA Integration](#dra-integration) section). Network implementations can automatically create and manage a corresponding `PodNetwork` resource for every network they manage. The specific implementation is also responsible for managing the life cycle of the `PodNetwork` resource. A set of conformance tests enforces how Multi-Network interacts with DRA.
+`PodNetwork` is defined as a cluster-scoped resource. `PodNetwork` objects are immutable once created. Each network object must correspond to exactly one `PodNetwork` instance. The API is designed to work with network implementations based on Dynamic Resource Allocation (DRA, see the [DRA Integration](#dra-integration) section). The controller of the network implementation may automatically create and manage a corresponding `PodNetwork` resource for every network it manages. The specific implementation may also choose to manage the life cycle of the `PodNetwork` resource. A set of conformance tests enforces how Multi-Network interacts with DRA. Still, the API does not enforce or require such managing scheme. For example, user may simply create and manage the `PodNetwork` resource manually.
 
 Once established, `PodNetwork` resources can be used as identifiers for network-dependent attributes and resources. In multi-network environments, these may include pod IPs, network policies, gateways, and services. While this API provides the framework for identification, it does not strictly dictate how these identifiers must be utilized. Future design examples and reference implementations will demonstrate the various ways `PodNetwork` objects can be integrated.
 
@@ -34,6 +34,7 @@ type PodNetwork struct {
     metav1.ObjectMeta `json:"metadata,omitempty"`
     
     // Spec defines the desired state of the PodNetwork.
+    // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="This field is immutable"
     Spec PodNetworkSpec `json:"spec"`
 
     // Status defines the current state of the network
@@ -52,7 +53,7 @@ type PodNetworkSpec struct {
     
     // NetworkRef references the underlying specific network implementation.
     // +optional
-    NetworkRef NetworkReference `json:"networkref,omitempty"`
+    NetworkRef *NetworkReference `json:"networkref,omitempty"`
 }
 
 type PodNetworkStatus struct {
@@ -97,6 +98,7 @@ type PodNetworkStatus struct {
     // +listType=map
     // +listMapKey=type
     // +kubebuilder:validation:MaxItems=8
+    // +kubebuilder:default={{type: "Ready", status: "Unknown", message: "Waiting for controller", reason: "Pending", lastTransitionTime: "1970-01-01T00:00:00Z"}}
     Conditions []metav1.Condition
 }
 
@@ -120,9 +122,23 @@ type NetworkReference struct {
 }
 ```
 
+## Notes on the `PodNetwork` Struct
+
+Users should be aware of the possible name conflicts when creating `PodNetwork` objects, and handle the conflicts gracefully.  The `PodNetwork` struct is designed with the `Spec` field being immutable, thus creating an object with the same name as an existing `PodNetwork` object will not overwrite the existing one.  One approach to handle name conflict is to select a name for a new `PodNetwork` object, verify the name is not used first, then create the object, and verify that the creation is indeed successful.
+
+One may use the name of the referenced network CR object as the name of the `PodNetwork` object. If name conflict is a concern, one may also follow the naming convention of using a domain name with provider as the prefix, example: "multinetwork.gke.io-bluenet". This API does not enforce any naming convention.
+
+The `NetworkRef` field of the `PodNetworkSpec` struct is optional. This allows a `PodNetwork` object to be created without referring to a CRD-based network implementation. In this case, the network referred by the `PodNetwork` is implicit, and the user is responsible for providing network configurations explicitly wherever this `PodNetwork` object is used.
+
+When created, the `Status.Conditions` field should have a field `Ready` with the value set properly. By default, its value is `Unknown`. 
+
+It is required that the custom resource object referenced by a `PodNetwork` object should NOT be deleted as long as this `PodNetwork` object exists. This should be implemented in the network implementation's controller by any implementation that is conformed with this API.  On the other hand, if the `PodNetwork` is referenced by objects of other resources, it is the responsibility of those resources' controler to ensure dependency tracking, e.g., using finalizers placed in corresponding `PodNetwork` objects.
+
+This proposal introduces no dedicated controller, thus no explicit validation is done for `PodNetwork` objects. We will rely on native Kubernetes resource handling.
+
 ## DRA Integration
 
-This proposal standardizes driver implementations to integrate pod networks with DRA, facilitating a unified approach to multi-networking in Kubernetes and supporting the rollout of future features.
+This proposal standardizes a DRA-based network implementation's driver implementation with respect to its integration with the `PodNetwork` API. 
 
 ### Device PodNetwork Attributes
 
@@ -141,19 +157,12 @@ const (
 )
 ```
 
-### Creating `PodNetwork` objects
-In DRA based network implementations, a specialized controller manages the custom resource objects that represent networks. To ensure compatibility with the PodNetwork API, this controller may automatically produce a matching PodNetwork object for each network it oversees. The following logic outlines how the controller should generally handle the addition and removal of `PodNetwork` resources:
+### Life cyle of `PodNetwork` objects
+In DRA based network implementations, a controller manages the custom resource objects that represent networks. To use the `PodNetwork` API, it is recommended that the network's controller should produce a `PodNetwork` object for each network it manages. When creating the `PodNetwork` object, the controller should handle the possible name conflict gracefully. Though this is not a requirement and is not enforced.
 
-```
-FOR EACH Network ADDED:
-  AddPodNetwork(Network)
+A network's controller should watch every `PodNetwork` object with `spec.provider` field matching itself, and update the `Status.Conditions` field based on the status of the corresponding network it manages. The controller should do this for each `PodNetwork` object with matching `spec.provider` field, whether or not the object is created by itself.
 
-FOR EACH Network TO-BE-DELETED:
-  DeletePodNetwork(Network)
-
-```
-
-To avoid naming collisions, it is recommended that the name of the generated `PodNetwork` object should have the provider name as a prefix, for example, "foo.networking.com/podnet-blue-net". Though this is not enforced. When name conflict happens, the fact that `PodNetwork` is an immutable type prevents the object from being created. It is recommended that the controllers should expect name conflicts and deal with them gracefully.
+If a `PodNetwork` object reference a custom resource object of a network implementation, it is required that the referenced custom resource object should NOT be deleted as long as this `PodNetwork` object exists. The controller of the very network implementation is responsible for enforcing this. The network controller may use a finalizer placed in the customer resource object to implement this. The controller should do this for each `PodNetwork` object with matching `spec.provider` field, whether or not the object is created by itself.
 
 ### ResourceClaim Status
 
@@ -187,7 +196,7 @@ The controller could then create a `PodNetwork` object, which is:
 apiVersion: multinetwork.networking.x-k8s.io/v1alpha1
 kind: PodNetwork
 metadata:
-  name: foo.networking.com/podnet-blue-net # If created by the controller, it can decide the naming convention.
+  name: blue-net
 spec: 
   provider: foo.networking.com
   networkref:
@@ -207,7 +216,7 @@ metadata:
 spec:
   selectors:
   - cel:
-      expression: device.attributes["multinetwork.networking.x-k8s.io"].podNetwork == "foo.networking.com/podnet-blue-net"
+      expression: device.attributes["multinetwork.networking.x-k8s.io"].podNetwork == "blue-net"
 ```
 
 `FooNetwork`'s DRA driver should create `ResourceSlice` objects like the following (common fields ignored):
@@ -223,7 +232,7 @@ spec:
     basic:
       attributes:
         multinetwork.networking.x-k8s.io/podNetwork:
-          string: foo.networking.com/podnet-blue-net
+          string: blue-net
 ....
 
 ```
@@ -246,7 +255,7 @@ status:
   - device: eno1
     driver: foo.networking.com
     data:
-      podNetwork: foo.networking.com/podnet-blue-net
+      podNetwork: blue-net
     networkdata:
       networkData:
       hardwareAddress: 5a:9f:d8:84:fb:51
@@ -259,13 +268,14 @@ status:
 
 ## Conformance Tests
 
-Rather than implementing a standalone controller for PodNetwork, we will rely on native Kubernetes resource handling. The `PodNetwork` resource is intended for use with DRA-based network implementations. Consequently, we are establishing conformance tests to validate the behavior of these network DRA drivers. These tests verify that pod networks can be discovered, selected, and observed through standard Kubernetes mechanisms, focusing specifically on API-related properties rather than general DRA driver behaviors.
+The conformance tests run in a cluster with a network implementation to be tested, and verify that a given network implementation is compliant with the `PodNetwork` API. Note that though we mentioned DRA based network implementation in the design, the tests have no explicit requirement for how the network is implemented. It only validates the behavior of the network implementation with regard to `PodNetwork`.
 
-Conformance tests validate:
+Conformance tests, when running in a cluster with a network implementation under test, validate:
 * `PodNetwork` object lifecycle.
-  1. When created, a `PodNetwork` holds `spec` field, with the `spec.Provider` field set properly, and, if exist, the `spec.NetworkRef` field should reference the proper network custom resource object. 
-  2. When a `PodNetwork` is created, its `spec.Conditions` field ultimately contains `Ready` condition with value true.
-  5. When a network is deleted, the corresponding `PodNetwork` is either deleted or with `Ready` condition with value false, or without the `Ready` condition.
+  1. When created, a `PodNetwork` holds `spec` field, with the `spec.Provider` field set properly.
+  2. The `spec.NetworkRef` field of a `PodNetwork` object, when exists, should reference the proper network custom resource object. 
+  3. When a `PodNetwork` is created referencing an existing network implementation, its `status.Conditions` field ultimately contains `Ready` condition with value true.
+  4. The underlying network CR can not be deleted until the `PodNetwork` refering it is deleted.
 
 * `ResourceSlice` attributes: the `ResourceSlice` resource advertised by a network implementation must include the following attributes with the value set properly:
   1. `multinetwork.networking.k8s.io/podNetwork`.
